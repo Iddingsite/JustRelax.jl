@@ -208,7 +208,24 @@ function WENO_advection!(u, Vxi, weno, di, dt)
 end
 
 @parallel_indices (i, j) function weno_step1!(weno, u, Vxi, _di, ni, dt)
-    rᵢ = weno_rhs(Vxi..., weno, _di..., ni..., i, j)
+    # rᵢ = weno_rhs(Vxi..., weno, _di..., ni..., i, j)
+
+    # use simple upwind discretisation for testing
+    @inbounds begin
+        vx_ij = Vxi[1][i, j]
+        vy_ij = Vxi[2][i, j]
+
+        iS, iN = clamp(i - 1, 1, ni[1]), clamp(i + 1, 1, ni[1])
+        jW, jE = clamp(j - 1, 1, ni[2]), clamp(j + 1, 1, ni[2])
+
+        rᵢ = @muladd max(vx_ij, 0) * (u[i, j] - u[iS, j]) * _di[1] +
+            min(vx_ij, 0) * (u[iN, j] - u[i, j]) * _di[1] +
+            max(vy_ij, 0) * (u[i, j] - u[i, jW]) * _di[2] +
+            min(vy_ij, 0) * (u[i, jE] - u[i, j]) * _di[2]
+    end
+
+    
+
     @inbounds weno.ut[i, j] = muladd(-dt, rᵢ, u[i, j])
     return nothing
 end
