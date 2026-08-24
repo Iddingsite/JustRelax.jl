@@ -662,6 +662,21 @@ end
     return dVdτ_new, dVdτ_new * β * dτ
 end
 
+# AR-DR variant, selected by passing `nothing` in the step slot. The momentum is the
+# global ramp β_k (see `ardr_momentum`) rather than the per-cell α = (2−c·dτ)/(2+c·dτ),
+# and the step keeps DYREL's stability relation with λmin removed:
+#   dτ²(1+β_k)/2 ≡ CFL²·2(1+β_k)/λmax   for   dτ = 2·CFL/√λmax.
+# At β_k = 0 this collapses to dτ²/2, DYREL's own zero-momentum warm-start step.
+@inline function damped_update_V(dVdτ, R, β_k, ::Nothing, dτ)
+    dVdτ_new = β_k * dVdτ + R
+    return dVdτ_new, dVdτ_new * dτ * dτ * (1 + β_k) / 2
+end
+
+# Coefficient accessor: DYREL supplies per-cell arrays, AR-DR a global scalar (or the
+# `nothing` sentinel above). Fully inlined, so the array path compiles unchanged.
+@inline _coeff(A::AbstractArray, I::Vararg{Integer, N}) where {N} = @inbounds A[I...]
+@inline _coeff(x, ::Vararg{Integer, N}) where {N} = x
+
 # Fuses `compute_DR_residual_V!` (velocity residual R = ∂ⱼτiⱼ − ∂ᵢ(P + θc) − ρgᵢ, /Dᵢ, where the
 # small pressure correction θc = P_num + ΔPψ is assembled once per iteration by the stress kernel)
 # with the damped update of `update_V_damping_DR_V!`. Folding only the two small corrections (not the
@@ -705,7 +720,7 @@ end
             Rx_ij = (d_xa(τxx) + d_yi(τxy) - d_xa(P) - d_xa(θc) - av_xa(ρgx)) / Dx[i, j]
             Rx[i, j] = Rx_ij
 
-            dVx_new, ΔVx = damped_update_V(dVxdτ[i, j], Rx_ij, αVx[i, j], βVx[i, j], dτVx[i, j])
+            dVx_new, ΔVx = damped_update_V(dVxdτ[i, j], Rx_ij, _coeff(αVx, i, j), _coeff(βVx, i, j), dτVx[i, j])
             dVxdτ[i, j] = dVx_new
             Vx[i + 1, j + 1] += ΔVx
         end
@@ -717,7 +732,7 @@ end
             Ry_ij = (d_ya(τyy) + d_xi(τxy) - d_ya(P) - d_ya(θc) - av_ya(ρgy)) / Dy[i, j]
             Ry[i, j] = Ry_ij
 
-            dVy_new, ΔVy = damped_update_V(dVydτ[i, j], Ry_ij, αVy[i, j], βVy[i, j], dτVy[i, j])
+            dVy_new, ΔVy = damped_update_V(dVydτ[i, j], Ry_ij, _coeff(αVy, i, j), _coeff(βVy, i, j), dτVy[i, j])
             dVydτ[i, j] = dVy_new
             Vy[i + 1, j + 1] += ΔVy
         end
@@ -786,7 +801,7 @@ end
             ) / Dx[i, j, k]
             Rx[i, j, k] = Rx_ijk
 
-            dVx_new, ΔVx = damped_update_V(dVxdτ[i, j, k], Rx_ijk, αVx[i, j, k], βVx[i, j, k], dτVx[i, j, k])
+            dVx_new, ΔVx = damped_update_V(dVxdτ[i, j, k], Rx_ijk, _coeff(αVx, i, j, k), _coeff(βVx, i, j, k), dτVx[i, j, k])
             dVxdτ[i, j, k] = dVx_new
             Vx[i + 1, j + 1, k + 1] += ΔVx
         end
@@ -802,7 +817,7 @@ end
             ) / Dy[i, j, k]
             Ry[i, j, k] = Ry_ijk
 
-            dVy_new, ΔVy = damped_update_V(dVydτ[i, j, k], Ry_ijk, αVy[i, j, k], βVy[i, j, k], dτVy[i, j, k])
+            dVy_new, ΔVy = damped_update_V(dVydτ[i, j, k], Ry_ijk, _coeff(αVy, i, j, k), _coeff(βVy, i, j, k), dτVy[i, j, k])
             dVydτ[i, j, k] = dVy_new
             Vy[i + 1, j + 1, k + 1] += ΔVy
         end
@@ -818,7 +833,7 @@ end
             ) / Dz[i, j, k]
             Rz[i, j, k] = Rz_ijk
 
-            dVz_new, ΔVz = damped_update_V(dVzdτ[i, j, k], Rz_ijk, αVz[i, j, k], βVz[i, j, k], dτVz[i, j, k])
+            dVz_new, ΔVz = damped_update_V(dVzdτ[i, j, k], Rz_ijk, _coeff(αVz, i, j, k), _coeff(βVz, i, j, k), dτVz[i, j, k])
             dVzdτ[i, j, k] = dVz_new
             Vz[i + 1, j + 1, k + 1] += ΔVz
         end

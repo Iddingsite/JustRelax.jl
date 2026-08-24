@@ -59,8 +59,7 @@ function init_phases!(phase_ratios, xci, xvi, circle)
 end
 
 # MAIN SCRIPT --------------------------------------------------------------------
-function ShearBand2D()
-    n = 32
+function ShearBand2D(; algorithm = :DYREL, finalize_MPI = true, n = 32, nout = 50)
     nx = n
     ny = n
     init_mpi = JustRelax.MPI.Initialized() ? false : true
@@ -157,6 +156,8 @@ function ShearBand2D()
     sol = [0.0e0]
     ttot = [0.0e0]
     local iters, τII, sol
+    total_iters = 0
+    total_restarts = 0
 
     while it < 10
 
@@ -176,18 +177,22 @@ function ShearBand2D()
                 verbose_PH = false,
                 verbose_DR = false,
                 iterMax = 50.0e3,
-                nout = 50,
+                nout = nout,
                 rel_drop = 0.5,
                 λ_relaxation_PH = 1,
                 λ_relaxation_DR = 1,
                 viscosity_relaxation = 1,
                 linear_viscosity = true,
                 viscosity_cutoff = (-Inf, Inf),
+                algorithm = algorithm,
             )
         )
         tensor_invariant!(stokes.τ)
         tensor_invariant!(stokes.ε)
         tensor_invariant!(stokes.ε_pl)
+
+        total_iters += isempty(iters.err_evo_it) ? 0 : Int(iters.err_evo_it[end])
+        total_restarts += iters.n_restarts
 
         it += 1
         t += dt
@@ -201,18 +206,36 @@ function ShearBand2D()
     end
     tensor_invariant!(stokes.τ)
 
-    finalize_global_grid(; finalize_MPI = true)
+    finalize_global_grid(; finalize_MPI = finalize_MPI)
 
-    return iters, τII, sol, extrema(stokes.τ.II)
+    return iters, τII, sol, extrema(stokes.τ.II), (; total_iters, total_restarts)
 end
 
 @testset "ShearBand2D" begin
     @suppress begin
-        iters, τII, sol, extrema_τII = ShearBand2D()
+        iters, τII, sol, extrema_τII, totals = ShearBand2D(; finalize_MPI = false)
         @test iters.err_evo_tot[end] < 1.0e-6
         @test extrema_τII[1] ≈ 1.5443419501214892 atol = 1.0e-3
         @test extrema_τII[2] ≈ 1.6392107249658066 atol = 1.0e-3
         @test τII[end] ≈ 1.638803924349033 atol = 1.0e-4
         @test sol[end] ≈ 1.8358 atol = 1.0e-4
+        @test totals.total_restarts == 0       # :DYREL never restarts
+    end
+end
+
+# The AR-DR accelerator drops the λmin estimate for a restarted Nesterov ramp. It is a
+# different path to the same fixed point, so it must land on the same physics — the
+# reference values are the ones asserted for :DYREL above.
+@testset "ShearBand2D AR-DR" begin
+    @suppress begin
+        iters, τII, sol, extrema_τII, totals = ShearBand2D(; algorithm = :ARDR)
+        @test iters.err_evo_tot[end] < 1.0e-6
+        @test extrema_τII[1] ≈ 1.5443419501214892 atol = 1.0e-3
+        @test extrema_τII[2] ≈ 1.6392107249658066 atol = 1.0e-3
+        @test τII[end] ≈ 1.638803924349033 atol = 1.0e-4
+        @test sol[end] ≈ 1.8358 atol = 1.0e-4
+        # the adaptive restart must actually engage on a plastic problem, otherwise the
+        # ramp runs uncontested toward β → 1 and the test below is vacuous
+        @test totals.total_restarts > 0
     end
 end

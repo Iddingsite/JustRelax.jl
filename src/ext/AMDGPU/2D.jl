@@ -73,6 +73,14 @@ function JR2D.update_dτV_α_β!(dyrel::JustRelax.DYREL{<:ROCArray})
     return update_dτV_α_β!(dyrel)
 end
 
+function JR2D.update_dτV!(dτVx::ROCArray, dτVy, λmaxVx, λmaxVy, CFL_v)
+    return update_dτV!(dτVx, dτVy, λmaxVx, λmaxVy, CFL_v)
+end
+
+function JR2D.update_dτV!(dyrel::JustRelax.DYREL{<:ROCArray})
+    return update_dτV!(dyrel)
+end
+
 function JR2D.ThermalArrays(::Type{AMDGPUBackend}, ni::NTuple{N, Number}) where {N}
     return ThermalArrays(ni...)
 end

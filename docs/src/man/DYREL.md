@@ -51,14 +51,15 @@ solve_DYREL!(
 where the solver keyword arguments are:
 - `iterMax` $\rightarrow$ maximum number of total iterations.
 - `nout` $\rightarrow$ damping coefficients are re-computed every `nout` iterations.
-- `rel_drop` $\rightarrow$ the tolerance for the inner dynamic relaxation loop is $error(P^n) \text{rel_drop}$ where $n$ is the inner Powell-Hesteness iteration counter.
+- `rel_drop` $\rightarrow$ the tolerance for the inner dynamic relaxation loop is $error(P^n) \cdot \texttt{rel\_drop}$ where $n$ is the inner Powell-Hesteness iteration counter.
 - `λ_relaxation_PH` $\rightarrow$ relaxation coefficient for the plastic multiplier ($\cdot\lambda$) during the inner Powell-Hesteness loop. `λ_relaxation_PH=1` means no relaxation.
 - `λ_relaxation_DR` $\rightarrow$ relaxation coefficient for the plastic multiplier ($\cdot\lambda$) during the innes Dynamic Relaxation loop. `λ_relaxation_DR=1` means no relaxation.
 - `verbose_PH` $\rightarrow$ # print solver metrics during  inner Powell-Hesteness loop.
 - `verbose_DR` $\rightarrow$ # print solver metrics during  innes Dynamic Relaxation loop.
 - `viscosity_relaxation` $\rightarrow$ relaxation coefficient for the viscosity. `viscosity_relaxation=1` means no relaxation.
 - `linear_viscosity` $\rightarrow$ if the rheology is linear (viscosity will not be updated during the solver iterations).
-- `viscosity_cutoff` $\rightarrow$ viscosity is clamped so that $\text{viscosity_cutoff}_1 \leq \eta \leq \text{viscosity_cutoff}_2$.
+- `viscosity_cutoff` $\rightarrow$ viscosity is clamped so that $\texttt{viscosity\_cutoff}_1 \leq \eta \leq \texttt{viscosity\_cutoff}_2$.
+- `algorithm` $\rightarrow$ velocity accelerator, `:DYREL` (default) or `:ARDR`. See below.
 
 # Examples
 

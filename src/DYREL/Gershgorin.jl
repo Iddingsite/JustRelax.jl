@@ -246,6 +246,75 @@ end
     return nothing
 end
 
+"""
+    ardr_momentum(k)
+
+Momentum of the AR-DR (adaptive-restart dynamic relaxation) ramp on sweep `k` of the
+current restart cycle, `β_k = (k - 1) / (k + 2)`.
+
+This is Nesterov/FISTA's canonical ramp, and the λmin-free replacement for DYREL's
+damping `c = 2·c_fact·√λmin`. It discretises the Su–Boyd–Candès ODE
+`ẍ + (3/t)ẋ + ∇f = 0`.
+
+`k` is 1-based: `β_1 = 0`, so a fresh solve and a fresh restart both begin with one
+stable zero-momentum step, matching FISTA's `t_1 = 1`.
+"""
+@inline ardr_momentum(k::Integer) = (k - 1) / (k + 2)
+
+"""
+    update_dτV!(dτV, λmaxV, CFL_v)
+
+Update only the pseudo-time step `dτV = 2/√λmaxV · CFL_v` from the Gershgorin
+eigenvalue estimate, leaving `αV`, `βV` and `cV` untouched.
+
+This is the AR-DR counterpart of [`update_dτV_α_β!`](@ref): on that path the
+momentum comes from [`ardr_momentum`](@ref) and the step is rebuilt in-register by
+the velocity kernel as `dτ²(1+β_k)/2`, so the DYREL damping coefficients are never
+read and there is no reason to write them.
+"""
+function update_dτV!(
+        dτV::NTuple{N, AbstractArray{T, N}},
+        λmaxV::NTuple{N, AbstractArray{T, N}},
+        CFL_v::Real
+    ) where {N, T}
+    ni = size(dτV[1]) .+ ntuple(i -> i == 1 ? 1 : 0, Val(N))
+    @parallel (@idx ni) _update_dτV!(dτV, λmaxV, CFL_v)
+    return nothing
+end
+
+@parallel_indices (I...) function _update_dτV!(
+        dτV::NTuple{N, AbstractArray{T, N}},
+        λmaxV::NTuple{N, AbstractArray{T, N}},
+        CFL_v::Real
+    ) where {N, T}
+    ntuple(Val(N)) do i
+        @inline
+        if all(I .≤ size(dτV[i]))
+            dτV[i][I...] = 2 / √(λmaxV[i][I...]) * CFL_v
+        end
+    end
+    return nothing
+end
+
+# 2D wrapper for update_dτV!
+function update_dτV!(dyrel::JustRelax.DYREL)
+    return update_dτV!(
+        (dyrel.dτVx, dyrel.dτVy),
+        (dyrel.λmaxVx, dyrel.λmaxVy),
+        dyrel.CFL
+    )
+end
+
+# 2D wrapper for update_dτV! with individual arguments
+function update_dτV!(dτVx, dτVy, λmaxVx, λmaxVy, CFL_v)
+    return update_dτV!((dτVx, dτVy), (λmaxVx, λmaxVy), CFL_v)
+end
+
+# 3D wrapper for update_dτV! with individual arguments
+function update_dτV!(dτVx, dτVy, dτVz, λmaxVx, λmaxVy, λmaxVz, CFL_v)
+    return update_dτV!((dτVx, dτVy, dτVz), (λmaxVx, λmaxVy, λmaxVz), CFL_v)
+end
+
 # 2D wrapper for update_α_β!
 function update_α_β!(dyrel::JustRelax.DYREL)
     return update_α_β!(

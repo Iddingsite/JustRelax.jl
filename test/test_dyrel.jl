@@ -140,6 +140,56 @@ end
         @test all(αVy .≈ expected_α)
     end
 
+    @testset "AR-DR momentum ramp" begin
+        # β_k = (k-1)/(k+2): Nesterov/FISTA's canonical ramp, the λmin-free replacement
+        # for DYREL's c = 2·c_fact·√λmin damping. 1-based: β_1 = 0 (FISTA's t_1 = 1).
+        @test JustRelax2D.ardr_momentum(1) == 0.0
+        @test JustRelax2D.ardr_momentum(2) ≈ 1 / 4
+        @test JustRelax2D.ardr_momentum(3) ≈ 2 / 5
+        @test JustRelax2D.ardr_momentum(10) ≈ 9 / 12
+
+        βs = JustRelax2D.ardr_momentum.(1:200)
+        @test issorted(βs)             # momentum only ever ramps up between restarts
+        @test all(>=(0), βs)           # never reverses the stored momentum
+        @test all(<(1), βs)            # and never reaches the undamped β = 1
+
+        # asymptotically β_k ≈ 1 - 3/k, the Su-Boyd-Candès ODE discretisation at c = 3
+        @test JustRelax2D.ardr_momentum(10_000) ≈ 1 - 3 / 10_000 rtol = 1.0e-3
+    end
+
+    @testset "update_dτV! 2D" begin
+        # AR-DR needs only the dτ half of update_dτV_α_β!: α and β are rebuilt
+        # per sweep from the scalar ramp, so cV never enters.
+        nx, ny = 5, 4
+        dτVx = @zeros(nx, ny); dτVy = @zeros(nx, ny)
+        λmaxVx = @ones(nx, ny) .* 4.0
+        λmaxVy = @ones(nx, ny) .* 9.0
+        CFL = 0.9
+
+        JustRelax2D.update_dτV!(dτVx, dτVy, λmaxVx, λmaxVy, CFL)
+
+        @test all(dτVx .≈ 2 / sqrt(4.0) * CFL)
+        @test all(dτVy .≈ 2 / sqrt(9.0) * CFL)
+    end
+
+    @testset "update_dτV! struct wrapper" begin
+        nx, ny = 5, 4
+        dyrel = JustRelax2D.DYREL(backend_JR, (nx, ny); CFL = 0.8)
+        dyrel.λmaxVx .= 4.0
+        dyrel.λmaxVy .= 4.0
+        # sentinels: the AR-DR path must not touch the DYREL damping coefficients
+        dyrel.αVx .= -1.0; dyrel.αVy .= -1.0
+        dyrel.βVx .= -1.0; dyrel.βVy .= -1.0
+        dyrel.cVx .= -1.0; dyrel.cVy .= -1.0
+
+        JustRelax2D.update_dτV!(dyrel)
+
+        @test all(dyrel.dτVx .≈ 2 / sqrt(4.0) * 0.8)
+        @test all(dyrel.dτVy .≈ 2 / sqrt(4.0) * 0.8)
+        @test all(dyrel.αVx .== -1.0) && all(dyrel.βVx .== -1.0) && all(dyrel.cVx .== -1.0)
+        @test all(dyrel.αVy .== -1.0) && all(dyrel.βVy .== -1.0) && all(dyrel.cVy .== -1.0)
+    end
+
     @testset "DYREL struct wrappers" begin
         # update_α_β!(dyrel) and update_dτV_α_β!(dyrel) drive the kernels off the
         # DYREL fields directly.
