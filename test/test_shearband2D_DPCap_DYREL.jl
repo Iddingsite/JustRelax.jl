@@ -55,8 +55,7 @@ function init_phases!(phase_ratios, xci, xvi, circle)
 end
 
 # MAIN SCRIPT --------------------------------------------------------------------
-function ShearBand2D_DPCap_DYREL()
-    n = 32
+function ShearBand2D_DPCap_DYREL(; algorithm = :DYREL, finalize_MPI = true, n = 32, nout = 10)
     nx = ny = n
     init_mpi = JustRelax.MPI.Initialized() ? false : true
     igg = IGG(init_global_grid(nx, ny, 1; init_MPI = init_mpi)...)
@@ -141,6 +140,8 @@ function ShearBand2D_DPCap_DYREL()
 
     t, it = 0.0, 0
     local iters
+    total_iters = 0
+    total_restarts = 0
 
     # ~25 Maxwell-time steps are needed before τII reaches the yield envelope
     while it < 10
@@ -159,27 +160,33 @@ function ShearBand2D_DPCap_DYREL()
                 verbose_PH = false,
                 verbose_DR = false,
                 iterMax = 50.0e3,
-                nout = 10,
+                nout = nout,
                 rel_drop = 1.0e-2,
                 λ_relaxation_PH = 1.0,
                 λ_relaxation_DR = 0.2,
                 viscosity_relaxation = 1,
                 linear_viscosity = true,
                 viscosity_cutoff = (-Inf, Inf),
+                algorithm = algorithm,
             )
         )
         tensor_invariant!(stokes.ε)
         tensor_invariant!(stokes.ε_pl)
         tensor_invariant!(stokes.τ)
 
+        total_iters += isempty(iters.err_evo_it) ? 0 : Int(iters.err_evo_it[end])
+        total_restarts += iters.n_restarts
+
         it += 1
         t += dt
     end
 
-    finalize_global_grid(; finalize_MPI = true)
+    finalize_global_grid(; finalize_MPI = finalize_MPI)
 
     return (;
         iters,
+        total_iters,
+        total_restarts,
         τII_max = maximum(Array(stokes.τ.II)),
         ε_pl_max = maximum(Array(stokes.ε_pl.II)),
         Pmin = minimum(Array(stokes.P)),
@@ -191,7 +198,7 @@ end
 
 @testset "ShearBand2D_DPCap_DYREL" begin
     @suppress begin
-        out = ShearBand2D_DPCap_DYREL()
+        out = ShearBand2D_DPCap_DYREL(; finalize_MPI = false)
 
         # Outer (Powell–Hestenes) loop reached the requested tolerance
         @test out.iters.err_evo_tot[end] < 1.0e-5
@@ -203,5 +210,22 @@ end
         # ε_vol_pl = -λ * dQ/dP; with ψ > 0, dQ/dP < 0, so ε_vol_pl ≥ 0 (dilation)
         @test out.ε_vol_extrema[1] ≥ 0.0
         @test out.ε_vol_extrema[2] > 0.0
+    end
+end
+
+# Same problem through the AR-DR accelerator: a λmin-free path to the same fixed point,
+# so every physical assertion above must still hold.
+@testset "ShearBand2D_DPCap_DYREL AR-DR" begin
+    @suppress begin
+        out = ShearBand2D_DPCap_DYREL(; algorithm = :ARDR)
+
+        @test out.iters.err_evo_tot[end] < 1.0e-5
+        @test isfinite(out.τII_max)
+        @test out.τII_max < 2.0
+        @test out.ε_pl_max > 0.0
+        @test out.EVol_max > 0.0
+        @test out.ε_vol_extrema[1] ≥ 0.0
+        @test out.ε_vol_extrema[2] > 0.0
+        @test out.total_restarts > 0
     end
 end
